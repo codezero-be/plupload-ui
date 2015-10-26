@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Upload</title>
+
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css">
+
+    <style>
+        #upload-list {
+            height: 400px;
+            overflow-y: scroll;
+            overflow-x: hidden;
+        }
+        .dragover #upload-list {
+            border: 3px dashed green;
+            cursor: copy;
+        }
+        .dragover.drag-disabled #upload-list {
+            border: 3px dashed darkred;
+            cursor: not-allowed;
+        }
+
+        #upload-box-template {
+            display: none;
+        }
+        .upload-box, #uploaded-recently .upload-info {
+            display: inline-block;
+            position: relative;
+            width: 120px;
+            vertical-align: top;
+            margin: 10px;
+        }
+        .upload-box img {
+            border-radius: 6px;
+        }
+        .upload-box .progress {
+            margin: 2px 0;
+        }
+        .upload-dequeue {
+            position: absolute;
+            width: 17px;
+            height: 17px;
+            border-radius: 9px;
+            line-height: 17px;
+            right: -7px;
+            top: -7px;
+            background: darkred;
+            color: white;
+            text-align: center;
+            font-size: .7em;
+        }
+        .upload-dequeue:hover {
+            background: red;
+            color: white;
+        }
+        .uploads-stats {
+            display: inline-block;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+
+    <h1>File Upload</h1>
+
+    <button type="button" class="btn btn-primary" data-toggle="modal" data-target="#uploader">Uploader</button>
+
+    <div class="modal fade" id="uploader" tabindex="-1" role="dialog" aria-labelledby="uploader-label">
+        <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                    <h4 class="modal-title" id="uploader-label">Foto's Uploaden</h4>
+                </div>
+                <div class="modal-body">
+                    <div id="upload-list">
+                        Your browser doesn't have Flash, Silverlight or HTML5 support...
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <div id="total-upload-progress" class="progress">
+                        <div class="progress-bar progress-bar-success progress-bar-striped"
+                             role="progressbar"
+                             aria-valuenow="0"
+                             aria-valuemin="0"
+                             aria-valuemax="100"
+                             style="width: 0%">
+                        </div>
+                    </div>
+                    <div class="uploads-stats text-success">
+                        <i class="glyphicon glyphicon-ok-circle"></i> Geüpload:
+                        <span class="uploads-done">0</span>
+                    </div>
+                    <div class="uploads-stats text-danger">
+                        <i class="glyphicon glyphicon-remove-circle"></i> Mislukt:
+                        <span class="uploads-failed">0</span>
+                    </div>
+                    <div class="uploads-stats text-warning">
+                        <i class="glyphicon glyphicon-time"></i> Resterend:
+                        <span class="uploads-remaining">0</span>
+                    </div>
+                    <button type="button" id="select-files" class="btn btn-primary">Foto's Selecteren...</button>
+                    <button type="button" id="upload-files" class="btn btn-success">Upload Starten</button>
+                    <button type="button" class="btn btn-default" data-dismiss="modal">Sluiten</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="uploaded-recently"></div>
+
+</div>
+
+<div id="upload-box-template">
+    <div class="upload-box">
+        <div class="upload-info"></div>
+        <div class="progress">
+            <div class="progress-bar progress-bar-success progress-bar-striped"
+                 role="progressbar"
+                 aria-valuenow="0"
+                 aria-valuemin="0"
+                 aria-valuemax="100"
+                 style="width: 0%">
+            </div>
+        </div>
+        <a href="#" class="upload-dequeue" title="Upload verwijderen">
+            <i class="glyphicon glyphicon-remove"></i>
+        </a>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/1.11.3/jquery.min.js"></script>
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/js/bootstrap.min.js"></script>
+<script src="plupload.full.min.js"></script>
+
+<script type="text/javascript">
+
+    (function ($, plupload, window, undefined) {
+
+        var dragOverClass = 'dragover',
+                dragDisabledClass = 'drag-disabled',
+                removeUploadButtonClass = 'upload-dequeue',
+                uploadInfoClass = 'upload-info',
+                dropzoneID = 'uploader',
+                browseButtonID = 'select-files',
+                $uploadButton = $('#upload-files'),
+                $uploadList = $('#upload-list'),
+                $totalUploadsDone = $('.uploads-done'),
+                $totalUploadsFailed = $('.uploads-failed'),
+                $totalUploadsRemaining = $('.uploads-remaining'),
+                $totalProgressBar = $('#total-upload-progress .progress-bar'),
+                $uploadBoxTemplate = $('#upload-box-template .upload-box'),
+                $dropzone = $('#' + dropzoneID),
+                $browseButton = $('#' + browseButtonID),
+                totalQueueSize = 0, // bytes
+                currentQueueSize = 0, // bytes
+                totalFilesInQueue = 0; // total files in queue when upload starts
+
+        var uploader = new plupload.Uploader({
+            runtimes : 'html5,flash,silverlight,html4',
+            drop_element: dropzoneID,
+            browse_button : browseButtonID,
+            //container: document.getElementById('uploader'),
+            url : 'upload.php',
+            file_data_name: "file",
+            multi_selection: true,
+            multipart_params: {
+                "_token": '123'
+            },
+            max_retries: 1,
+            resize: {
+                width: 1920,
+                height: 1920,
+                crop: false
+            },
+            flash_swf_url : 'Moxie.swf',
+            silverlight_xap_url : 'Moxie.xap',
+
+            filters : {
+                max_file_size : '10mb',
+                mime_types: [
+                    {title : "Image files", extensions : "jpg,gif,png"},
+                    {title : "Zip files", extensions : "zip"}
+                ],
+                prevent_duplicates: true
+            },
+
+            init: {
+                PostInit: function () {
+                    if (uploader.features.dragdrop) {
+                        setupDragAndDrop();
+                    }
+                    removeNotSupportedMessage();
+                    toggleUploadButton(uploader);
+                    bindUploadButton(uploader);
+                    bindRemoveButton(uploader);
+                },
+
+                FilesAdded: function (uploader, files) {
+                    addUploadBox(uploader, files);
+                    updateTotalProgressbar(uploader);
+                    clearTotalProgressbarError();
+                },
+
+                FilesRemoved: function (uploader, files) {
+
+                },
+
+                QueueChanged: function (uploader) {
+                    toggleUploadButton(uploader);
+                    updateUploadStats(uploader);
+                    if (uploader.state == plupload.STOPPED) {
+                        totalQueueSize = uploader.total.size;
+                    }
+                },
+
+                BeforeUpload: function (uploader, file) {
+                    updateProgressbar(uploader, file);
+                },
+
+                UploadProgress: function (uploader, file) {
+                    updateProgressbar(uploader, file);
+                },
+
+                FileUploaded: function (uploader, file) {
+                    var $uploadBox = $('#' + file.id),
+                        $uploadedBox = $uploadBox.find('.' + uploadInfoClass).clone();
+
+                    updateTotalProgressbar(uploader, file);
+                    updateUploadStats(uploader);
+                    removeFileFromUploadList(uploader, file.id, $uploadBox);
+                    addFileToRecentlyUploadedList(file.id, $uploadedBox);
+                },
+
+                UploadComplete: function (uploader, files) {
+                    currentQueueSize = 0;
+                    requeueFailedUploads(uploader);
+                    enableBrowseButton();
+                    toggleUploadButton(uploader);
+                    enableRemoveUploadButtons(files);
+                },
+
+                Error: function (uploader, error) {
+                    updateProgressbar(uploader, error.file);
+                    updateTotalProgressbar(uploader, error.file);
+                    setTotalProgressbarError();
+                    updateUploadStats(uploader);
+                    console.log("Error #" + error.code + ": " + error.message);
+                }
+            }
+        });
+
+        uploader.init();
+
+        function setupDragAndDrop() {
+            var counter = 0;
+
+            // Enable drag and drop if browsing is enabled
+            $dropzone.on('dragover', function (event) {
+                if ($dropzone.hasClass(dragDisabledClass)) {
+                    event.originalEvent.dataTransfer.dropEffect = "none";
+                    event.stopPropagation();
+                } else {
+                    event.originalEvent.dataTransfer.dropEffect = "copy";
+                    event.stopPropagation();
+                }
+            });
+
+            // Prevent dropping files outside of the dropzone
+            $(window).on('dragover', function (event) {
+                event.originalEvent.dataTransfer.dropEffect = "none";
+                event.preventDefault();
+                return false;
+            });
+
+            // Add dragOver class for styling
+            $dropzone.on('dragenter', function () {
+                counter++;
+                $dropzone.addClass(dragOverClass);
+            });
+
+            // Remove dragOver class when leaving the dropzone
+            $dropzone.on('dragleave', function () {
+                counter--;
+                if (counter === 0) {
+                    $dropzone.removeClass(dragOverClass);
+                }
+            });
+
+            // Remove dragOver class when dropping files
+            $dropzone.on('drop', function (event) {
+                counter--;
+                $dropzone.removeClass(dragOverClass);
+                if ($dropzone.hasClass(dragDisabledClass)) {
+                    event.preventDefault();
+                    return false;
+                }
+            });
+        }
+
+        function removeNotSupportedMessage() {
+            $uploadList.html('');
+        }
+
+        function toggleUploadButton(uploader) {
+            if (uploader.files.length > 0) {
+                enableUploadButton();
+            } else {
+                disableUploadButton();
+            }
+        }
+
+        function enableUploadButton() {
+            $uploadButton.removeAttr('disabled');
+        }
+
+        function disableUploadButton() {
+            $uploadButton.attr('disabled', 'disabled');
+        }
+
+        function enableBrowseButton() {
+            $browseButton.removeAttr('disabled');
+            $dropzone.removeClass(dragDisabledClass);
+        }
+
+        function disableBrowseButton() {
+            $browseButton.attr('disabled', 'disabled');
+            $dropzone.addClass(dragDisabledClass);
+        }
+
+        function enableRemoveUploadButtons(files) {
+            plupload.each(files, function (file) {
+                if (file.status == plupload.QUEUED) {
+                    $('#' + file.id).find('.' + removeUploadButtonClass).delay(500).show(300);
+                }
+            });
+        }
+
+        function disableRemoveUploadButtons() {
+            $uploadList.find('.' + removeUploadButtonClass).hide();
+        }
+
+        function bindUploadButton(uploader) {
+            $uploadButton.on('click', function(event) {
+                event.preventDefault();
+                updateTotalProgressbar(uploader);
+                disableUploadButton();
+                disableBrowseButton();
+                disableRemoveUploadButtons();
+                uploader.start();
+            });
+        }
+
+        function bindRemoveButton(uploader) {
+            $uploadList.on('click', '.' + removeUploadButtonClass, function (event) {
+                event.preventDefault();
+                var id = $(this).data('upload-id'),
+                    $uploadBox = $('#' + id);
+
+                updateTotalProgressbar(uploader);
+                removeFileFromUploadList(uploader, id, $uploadBox);
+            });
+        }
+
+        function removeFileFromUploadList(uploader, id, $uploadBox) {
+            uploader.removeFile(id);
+            $uploadBox.animate({ width: 0 }, 700, function () {
+                $(this).remove();
+            });
+        }
+
+        function addFileToRecentlyUploadedList(id, $uploadedBox) {
+            $uploadedBox.prependTo('#uploaded-recently');
+        }
+
+        function addUploadBox(uploader, files) {
+            plupload.each(files, function (file) {
+                var $uploadBox = $uploadBoxTemplate.clone(),
+                    $removeButton = $uploadBox.find('.' + removeUploadButtonClass),
+                    $info = $uploadBox.find('.' + uploadInfoClass);
+
+                $uploadBox.attr("id", file.id);
+                $removeButton.data("upload-id", file.id);
+                //$info.html(file.name + ' (' + plupload.formatSize(file.size) + ')<b></b>');
+
+                showImagePreview(file, $info);
+                $uploadList.append($uploadBox);
+            });
+        }
+
+        function showImagePreview(file, $uploadBox) {
+            var image = $(new Image()).prependTo($uploadBox),
+                preloader = new mOxie.Image();
+            // Define the onload BEFORE you execute the load()
+            // command as load() does not execute async.
+            preloader.onload = function () {
+                preloader.downsize({
+                    width: 120,
+                    height: 120,
+                    crop: true
+                });
+                // Now that the image is preloaded, grab the Base64
+                // encoded data URL. This will show the image
+                // without making an Network request using the
+                // client-side file binary.
+                image.prop("src", preloader.getAsDataURL());
+                // NOTE: These previews "work" in the FLASH runtime.
+                // But, they look seriously junky-to-the-monkey.
+                // Looks like they are only using like 256 colors.
+            };
+            // Calling the .getSource() on the file will return an
+            // instance of mOxie.File, which is a unified file
+            // wrapper that can be used across the various runtimes.
+            // --
+            // Wiki: https://github.com/moxiecode/plupload/wiki/File
+            preloader.load(file.getSource());
+        }
+
+        function updateProgressbar(uploader, file) {
+            var $bar = $('#' + file.id + ' .progress-bar'),
+                percent = file.percent + '%';
+
+            if (file.status == plupload.QUEUED || file.status == plupload.UPLOADING) {
+                $bar.attr('aria-valuenow', file.percent);
+                $bar.css('width', percent);
+                $bar.html(percent);
+                $bar.addClass('progress-bar-success');
+                $bar.removeClass('progress-bar-danger');
+            } else if (file.status == plupload.FAILED) {
+                $bar.attr('aria-valuenow', '100');
+                $bar.css('width', '100%');
+                $bar.html('Error!');
+                $bar.addClass('progress-bar-danger');
+                $bar.removeClass('progress-bar-success');
+            }
+        }
+
+        function updateTotalProgressbar(uploader, file) {
+            if (file && uploader.state == plupload.STARTED) {
+                currentQueueSize += file.origSize;
+            }
+
+            var totalProgress = Math.round(currentQueueSize/totalQueueSize*100),
+                totalPercent = totalProgress + '%';
+
+            $totalProgressBar.attr('aria-valuenow', totalProgress);
+            $totalProgressBar.css('width', totalPercent);
+            $totalProgressBar.html(totalPercent);
+        }
+
+        function updateUploadStats(uploader) {
+            if (uploader.state == plupload.STOPPED) {
+                totalFilesInQueue = uploader.files.length;
+                $totalUploadsDone.html(0);
+                $totalUploadsFailed.html(0);
+                $totalUploadsRemaining.html(totalFilesInQueue);
+            } else {
+                $totalUploadsDone.html(totalFilesInQueue - uploader.total.failed - uploader.total.queued);
+                $totalUploadsFailed.html(uploader.total.failed);
+                $totalUploadsRemaining.html(uploader.total.queued);
+            }
+        }
+
+        function setTotalProgressbarError() {
+            $totalProgressBar.addClass('progress-bar-warning');
+            $totalProgressBar.removeClass('progress-bar-success');
+        }
+
+        function clearTotalProgressbarError() {
+            $totalProgressBar.addClass('progress-bar-success');
+            $totalProgressBar.removeClass('progress-bar-warning');
+        }
+
+        function requeueFailedUploads(uploader) {
+            for (i = 0 ; i < uploader.files.length; i++) {
+                var file = uploader.files[i];
+                if (file.status == plupload.FAILED) {
+                    file.status = plupload.QUEUED;
+                }
+            }
+        }
+    }(jQuery, plupload, window));
+</script>
+
+</body>
+</html>
